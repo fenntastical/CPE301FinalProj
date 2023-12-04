@@ -20,6 +20,9 @@ LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 int lowerThreshold = 420;
 int upperThreshold = 520;
 
+bool disabled = true; //keeps track of the state of the system
+//bool error = false; //keeps track if the system is in ERROR mode
+
 void setup() 
 {
   // setup the UART
@@ -27,107 +30,66 @@ void setup()
   // setup the ADC
   adc_init();
 
+  //setting up LED's for water ouput reading
+  pinMode(6, OUTPUT); //red LED
+  pinMode(7, OUTPUT); //yellow LED
+  pinMode(8, OUTPUT); //green LED
+  pinMode(9, OUTPUT); //blue LED
+
   lcd.begin(16, 2); // set up number of columns and rows
 
  
 }
 void loop() 
 {
-  unsigned int input;
-  unsigned int input1 = 0;
-  unsigned int input2 = 0;
-  unsigned int input3 = 0;
-  unsigned int input4 = 0;
-  input = adc_read(0); //read water level
 
-  if(input >= 1000){
-    input1 = input / 1000 + '0';
-    input = input % 1000;
-  }
+  digitalWrite(7, HIGH); //In disabled state the yellow LED should be on
 
-  if(input >= 100){
-    input2 = input / 100 + '0';
-    input = input % 100;
-  }
-
-  if(input >= 10){
-    input3 = input / 10 + '0';
-    input = input % 10;
-  }
- 
-  input4 = input + '0';
-
-  if(input3 < 4)
+  if(disabled == false)
   {
-    //low water lvl (print to screen)
-  }
+    digitalWrite(7, LOW); // yellow LED off
 
-  else if(input3 == 4 && input2 < 2)
-  {
-    //low water lvl
-  }
+    unsigned int input;
+    unsigned int input1 = 0;
+    unsigned int input2 = 0;
+    unsigned int input3 = 0;
+    unsigned int input4 = 0;
+    input = adc_read(0); //read water level
 
-  else if(input3 > 5)
-  {
-    //high water lvl
-  }
+    if(input >= 1000){
+      input1 = input / 1000 + '0';
+      input = input % 1000;
+    }
+
+    if(input >= 100){
+      input2 = input / 100 + '0';
+      input = input % 100;
+    }
+
+    if(input >= 10){
+      input3 = input / 10 + '0';
+      input = input % 10;
+    }
   
-  else if(input3 == 5 && input2 > 2)
-  {
-    //high water lvl
+    input4 = input + '0';
+
+    if(input3 < 4 || input3 == 4 && input2 < 2)
+    {
+      digitalWrite(8, LOW); // green LED off
+      digitalWrite(6, HIGH); // red LED on
+      //low water lvl (print to screen)
+      //ERROR MODE intiated
+      lcd.setCursor(0, 0);
+      lcd.print("Water level is too low");
+    }
+
+    else
+    {
+      digitalWrite(8, HIGH); // green LED on
+      //medium/high water lvl
+    }
   }
 
-  else
-  {
-    //medium water lvl
-  }
-//  lcd.setCursor(0, 0);
-//  lcd.print("Humidity: ");
-//  lcd.setCursor(10, 0);
-//  if(input1 != 0)
-//  {
-//    lcd.print(input1);
-//  }
-//  if(input2 != 0)
-//  {
-//    lcd.setCursor(11, 0);
-//    lcd.print(input2);
-//  }
-//  if(input3 != 0)
-//  {
-//    lcd.setCursor(12, 0);
-//    lcd.print(input3);
-//  }
-//  if(input4 != 0)
-//  {
-//    lcd.setCursor(13, 0);
-//    lcd.print(input4);
-//  }
-//
-//  lcd.setCursor(1, 1);
-//  lcd.print("Temperature: ");
-//  lcd.setCursor(12, 1);
-//    if(input1 != 0)
-//  {
-//    lcd.print(input1);
-//  }
-//  if(input2 != 0)
-//  {
-//    lcd.setCursor(13, 0);
-//    lcd.print(input2);
-//  }
-//  if(input3 != 0)
-//  {
-//    lcd.setCursor(14, 0);
-//    lcd.print(input3);
-//  }
-//  if(input4 != 0)
-//  {
-//    lcd.setCursor(15, 0);
-//    lcd.print(input4);
-//  }
-
-  delay(60000);
 }
 
 void adc_init()
