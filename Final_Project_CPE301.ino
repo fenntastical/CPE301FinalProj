@@ -1,6 +1,12 @@
 //Authors: Fenn Edmonds, Liam Francisco, Zack Chotinun, Ashley Eubanks
 #define RDA 0x80
 #define TBE 0x20  
+#include <Wire.h>
+#include <RTClib.h>
+
+RTC_DS3231 rtc;
+
+volatile bool secondFlag = false;
 
 volatile unsigned char *myUCSR0A = (unsigned char *)0x00C0;
 volatile unsigned char *myUCSR0B = (unsigned char *)0x00C1;
@@ -38,56 +44,81 @@ void setup()
 
   lcd.begin(16, 2); // set up number of columns and rows
 
+  // Timer 
+  Wire.begin();
+
+  if (!rtc.begin()) {
+    Serial.println("RTC Error");
+    while (1);
+  }
+  // Set up interrupt to trigger every second
+  attachInterrupt(digitalPinToInterrupt(2), handleInterrupt, FALLING);  //pin 2 for the interrupt
  
 }
 void loop() 
 {
+  if (secondFlag) {
+    DateTime now = rtc.now();
 
-  digitalWrite(7, HIGH); //In disabled state the yellow LED should be on
-
-  if(disabled == false)
-  {
-    digitalWrite(7, LOW); // yellow LED off
-
-    unsigned int input;
-    unsigned int input1 = 0;
-    unsigned int input2 = 0;
-    unsigned int input3 = 0;
-    unsigned int input4 = 0;
-    input = adc_read(0); //read water level
-
-    if(input >= 1000){
-      input1 = input / 1000 + '0';
-      input = input % 1000;
+    if (disabled) {
+      Serial.print("System Disabled - Time: ");
+      Serial.println(now.timestamp());
+      digitalWrite(7, HIGH); //In disabled state the yellow LED should be on
     }
+    else {
+      Serial.print("System Enabled - Time: ");
+      Serial.println(now.timestamp());
+      if(disabled == false)
+      {
+        digitalWrite(7, LOW); // yellow LED off
 
-    if(input >= 100){
-      input2 = input / 100 + '0';
-      input = input % 100;
-    }
+        unsigned int input;
+        unsigned int input1 = 0;
+        unsigned int input2 = 0;
+        unsigned int input3 = 0;
+        unsigned int input4 = 0;
+        input = adc_read(0); //read water level
 
-    if(input >= 10){
-      input3 = input / 10 + '0';
-      input = input % 10;
-    }
-  
-    input4 = input + '0';
+        if(input >= 1000){
+          input1 = input / 1000 + '0';
+          input = input % 1000;
+        }
 
-    if(input3 < 4 || input3 == 4 && input2 < 2)
-    {
-      digitalWrite(8, LOW); // green LED off
-      digitalWrite(6, HIGH); // red LED on
-      //low water lvl (print to screen)
-      //ERROR MODE intiated
-      lcd.setCursor(0, 0);
-      lcd.print("Water level is too low");
-    }
+        if(input >= 100){
+          input2 = input / 100 + '0';
+          input = input % 100;
+        }
 
-    else
-    {
-      digitalWrite(8, HIGH); // green LED on
-      //medium/high water lvl
+        if(input >= 10){
+          input3 = input / 10 + '0';
+          input = input % 10;
+        }
+      
+        input4 = input + '0';
+
+        if(input3 < 4 || input3 == 4 && input2 < 2)
+        {
+          digitalWrite(8, LOW); // green LED off
+          digitalWrite(6, HIGH); // red LED on
+          //low water lvl (print to screen)
+          //ERROR MODE intiated
+          lcd.setCursor(0, 0);
+          lcd.print("Water level is too low");
+        }
+
+        else
+        {
+          digitalWrite(8, HIGH); // green LED on
+          //medium/high water lvl
+        }
+      }
+      int stepperPosition = /* get stepper motor position??? */;
+      Serial.print("Stepper Motor Position - Time: ");
+      Serial.print(now.timestamp());
+      Serial.print(", Position: ");
+      Serial.println(stepperPosition);
     }
+        secondFlag = false; // Reset the flag
   }
 
 }
@@ -155,4 +186,9 @@ void U0putchar(unsigned char U0pdata)
 {
   while((*myUCSR0A & TBE)==0);
   *myUDR0 = U0pdata;
+}
+
+void handleInterrupt() {
+  //called every second by RTC interrupt
+  secondFlag = true;
 }
