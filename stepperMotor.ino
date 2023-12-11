@@ -1,37 +1,55 @@
 //Stepper motor + vent
+#include <Stepper.h> // Include the header file
 
-#include <Stepper.h>
+
+// change this to the number of steps on your motor
+
 #define STEPS 32
+
+
+// create an instance of the stepper class using the steps and pins
 
 Stepper stepper(STEPS, 10, 12, 11, 13);
 
+const int buttonPin = 2;
+const int buttonPin2 = 3;
+int buttonState = 0; 
+int buttonState2 = 0; 
+
+
+
 int Pval = 0;
+
 int potVal = 0;
+
 
 void setup() {
 
   Serial.begin(9600);
 
-  stepper.setSpeed(200);
+  stepper.setSpeed(1100);
+  pinMode(buttonPin, INPUT);
+  pinMode(buttonPin2, INPUT);
 
 }
 
+
 void loop() {
+  buttonState = digitalRead(buttonPin);
+  buttonState2 = digitalRead(buttonPin2);
 
-  potVal = map(analogRead(A1),0,1024,0,500);
-
-  if (potVal>Pval)
+  if (buttonState == HIGH) {
+    // turn LED on:
+      stepper.step(50);
+  } 
+  if(buttonState2 == HIGH)
   {
-    stepper.step(5);
+    // turn LED off:
+    stepper.step(-50);
   }
-
-  if (potVal<Pval)
+  else
   {
-    stepper.step(-5);
+    stepper.step(0);
   }
-
-  Pval = potVal;
-
-  //Serial.println(Pval); //for debugging
 
 }
