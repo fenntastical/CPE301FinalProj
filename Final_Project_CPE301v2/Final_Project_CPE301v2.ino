@@ -2,7 +2,7 @@
 #include <dht.h>
 
 dht DHT;
-#define DHTPIN 4
+#define DHTPIN A4
 
 #define RDA 0x80
 #define TBE 0x20  
@@ -18,14 +18,23 @@ volatile unsigned char* my_ADCSRB = (unsigned char*) 0x7B;
 volatile unsigned char* my_ADCSRA = (unsigned char*) 0x7A;
 volatile unsigned int* my_ADC_DATA = (unsigned int*) 0x78;
 
+// Timer Pointers
+volatile unsigned char *myTCCR1A = (unsigned char *) 0x80;
+volatile unsigned char *myTCCR1B = (unsigned char *) 0x81;
+volatile unsigned char *myTCCR1C = (unsigned char *) 0x82;
+volatile unsigned char *myTIMSK1 = (unsigned char *) 0x6F;
+volatile unsigned int  *myTCNT1  = (unsigned  int *) 0x84;
+volatile unsigned char *myTIFR1 =  (unsigned char *) 0x36;
+
 // LCD pins <--> Arduino pins
-const int RS = 11, EN = 12, D4 = 2, D5 = 3, D6 = 4, D7 = 5;
+const int RS = 5, EN = 4, D4 = 3, D5 = 2, D6 = 1, D7 = 0;
 //LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 
 int lowerThreshold = 420;
 int upperThreshold = 520;
 
 bool disabled = true; //keeps track of the state of the system
+unsigned int currentTicks;
 //bool error = false; //keeps track if the system is in ERROR mode
 
 void setup() 
@@ -36,9 +45,9 @@ void setup()
   adc_init();
 
   //setting up LED's for water ouput reading
-  pinMode(1, OUTPUT); //Motor Driver - IN2
-  pinMode(2, OUTPUT); //Motor Driver - IN3
-  pinMode(3, OUTPUT); //Motor Driver - ENA
+  pinMode(A3, OUTPUT); //Motor Driver - IN2
+  pinMode(A2, OUTPUT); //Motor Driver - IN3
+  pinMode(A1, OUTPUT); //Motor Driver - ENA
   pinMode(6, OUTPUT); //red LED
   pinMode(7, OUTPUT); //yellow LED
   pinMode(8, OUTPUT); //green LED
@@ -56,10 +65,11 @@ void loop()
   if(disabled == false)
   {
     digitalWrite(7, LOW); // yellow LED off
-    
+    currentTicks = 0;
+
     //controls motor direction
-    digitalWrite(1, LOW);
-    digitalWrite(2, HIGH);
+    digitalWrite(A3, LOW);
+    digitalWrite(A2, HIGH);
 
     int readDHT = DHT.read11(DHTPIN);
     float temp = DHT.temperature;
@@ -114,6 +124,23 @@ void loop()
     }
   }
 
+}
+
+ISR(TIMER1_OVF_vect)
+{
+  // Stop the Timer
+  *myTCCR1B &=0xF8;
+  // Load the Count
+  *myTCNT1 =  (unsigned int) (65535 -  (unsigned long) (currentTicks));
+  // Start the Timer
+  *myTCCR1B |=   0x01;
+  // if it's not the STOP amount
+  if(currentTicks != 65535)
+  {
+    disbaled = false;
+  }
+  else
+    disabled = true;
 }
 
 void adc_init()
