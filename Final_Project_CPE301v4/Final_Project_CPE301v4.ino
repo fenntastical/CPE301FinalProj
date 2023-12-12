@@ -5,23 +5,23 @@
 #include <RTClib.h>
 #include <LiquidCrystal.h>
 
-#define STEPS 32
+#define STEPS 60
 
 dht DHT;
-#define DHTPIN A4
+#define DHTPIN 34
 
 #define RDA 0x80
 #define TBE 0x20  
 
 RTC_DS3231 rtc; //real time clock
 unsigned long lastHumTempCheck = 0;
-const unsigned long humTempCheckInterval = 60000 // checks every 1 minute
+const unsigned long humTempCheckInterval = 60000; // checks every 1 minute
 
 Stepper stepper(STEPS, 10, 12, 11, 13);
 
 const int buttonPin2 = 23;
 const int buttonPin3 = 24;
-const int buttonPin4 = 25;
+const int buttonPin4 = 28;
 int buttonState2 = 0; 
 int buttonState3 = 0; 
 int buttonState4 = 0;
@@ -52,11 +52,20 @@ volatile unsigned char *myTIFR1 =  (unsigned char *) 0x36;
 const int RS = 5, EN = 4, D4 = 3, D5 = 2, D6 = 1, D7 = 0;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 
-int lowerThreshold = 420;
-int upperThreshold = 520;
+float temp;
+float humid;
+
+int waterThreshold = 100;
+
+float temperatureThreshold = 30;
+int waterLevel;
 bool resetButton = true;
 
-bool disabled = true; //keeps track of the state of the system
+//state variables
+bool disabled = false; //keeps track of the state of the system
+bool idle = false;
+bool running = false;
+bool error = true;
 unsigned int currentTicks;
 //bool error = false; //keeps track if the system is in ERROR mode
 
@@ -67,21 +76,25 @@ void setup()
   // setup the ADC
   adc_init();
 
+  pinMode(buttonPin, INPUT); //start and stop
+
   //stepper motor
   stepper.setSpeed(1100);
   pinMode(buttonPin2, INPUT);
   pinMode(buttonPin3, INPUT);
   
-  //setting up LED's for water ouput reading
+  
   pinMode(A3, OUTPUT); //Motor Driver - IN2
   pinMode(A2, OUTPUT); //Motor Driver - IN3
   pinMode(A1, OUTPUT); //Motor Driver - ENA
+
+  //setting up LED's for water ouput reading
   pinMode(6, OUTPUT); //red LED
   pinMode(7, OUTPUT); //yellow LED
   pinMode(8, OUTPUT); //green LED
   pinMode(9, OUTPUT); //blue LED
 
-  pinMode(buttonPin4, INPUT);
+  pinMode(buttonPin4, INPUT); //reset
   
   // Timer and LCD
   Wire.begin();
@@ -90,236 +103,179 @@ void setup()
 }
 void loop() 
 {
-  lcd.clear(); //clears the screen 
-
-  buttonState2 = digitalRead(buttonPin2);
-  buttonState3 = digitalRead(buttonPin3);
-
-  if (buttonState2 == HIGH) {
-    // turn LED on:
-    stepper.step(50);
-
-    //displaying to LCD
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Stepper Motor:");
-    lcd.setCursor(0,1);
-    lcd.print("MOVED FORWARD");
-    RTCdisplay(); //clears then displays date and time 
-
-    //displaying to serial
-    Serial.print("Stepper Motor: MOVED FORWARD- ");
-    displaySerial();
-
-  } 
-  if(buttonState3 == HIGH)
-  {
-    // turn LED off:
-    stepper.step(-50); //this moves motor backwards???
-
-    //displaying to LCD
-    lcd.clear();
-    lcd.setCursor(0,0);
-    lcd.print("Stepper Motor:");
-    lcd.setCursor(0,1);
-    lcd.print("MOVED BACKWARD");
-    RTCdisplay(); //clears then displays date and time 
-
-    //displaying to serial
-    Serial.print("Stepper Motor: MOVED BACKWARD- ");
-    displaySerial();
-
+  //int readDHT = DHT.read11(DHTPIN);
+  //temp = DHT.temperature;
+  //Serial.println(temp);
+  //waterLevel = adc_read(0);
+  //Serial.println(waterLevel);
+  if(disabled){
+    digitalWrite(6, LOW); //red LED off
+    digitalWrite(7, HIGH); //yellow LED on
+    digitalWrite(8, LOW); //green LED off
+    digitalWrite(9, LOW); //blue LED on
   }
-  else
-  {
-    stepper.step(0); //does this stop the stepper motor?
+  else if(idle){
+    //read water level
+    waterLevel = adc_read(0);
 
-    //displaying to LCD
-    lcd.clear();
-    lcd.setCursor(0,0); 
-    lcd.print("Stepper Motor:");
-    lcd.setCursor(0,1);
-    lcd.print("OFF");
-    RTCdisplay(); //clears then displays date and time
+    //read temperature
+    int readDHT = DHT.read11(DHTPIN);
+    temp = DHT.temperature;
+    Serial.println(temp);
+    Serial.println(waterLevel);
 
-    //displaying to serial
-    Serial.print("Stepper Motor: OFF-");
-    displaySerial();
+    digitalWrite(6, LOW); //red LED off
+    digitalWrite(7, LOW); //yellow LED off
+    digitalWrite(8, HIGH); //green LED on
+    digitalWrite(9, LOW); //blue LED on
 
-  }
- buttonState = digitalRead(buttonPin);
-  if(disabled == true)
-  {
-    if (buttonState == HIGH)
-    {
-      currentTicks = 0;
+    //idle to running check
+    if(temp > temperatureThreshold){
       disabled = false;
+      idle = false;
+      running = true;
+      error = false;
     }
-    digitalWrite(3, LOW);
-    digitalWrite(7, HIGH); //In disabled state the yellow LED should be on 
+
+    //idle to error check
+    if(waterLevel <= waterThreshold){
+      disabled = false;
+      idle = false;
+      running = false;
+      error = true;
+    }
+
+    //idle to disabled check
+    buttonState = digitalRead(buttonPin);
+    if(buttonState == HIGH){
+      disabled = true;
+      idle = false;
+      running = false;
+      error = false;
+    }
   }
-  
-  if(disabled == false) 
-  {
+  else if(running){
+    //read water level
+    waterLevel = adc_read(0);
 
-    if(buttonState == HIGH)
-    {
-      currentTicks = 65535;
-    }
-    
-    digitalWrite(7, LOW); // yellow LED off
+    //read temperature
+    int readDHT = DHT.read11(DHTPIN);
+    temp = DHT.temperature;
+    Serial.println(temp);
+    Serial.println(waterLevel);
 
-    //controls motor direction
-    digitalWrite(A3, LOW);
-    digitalWrite(A2, HIGH);
+    //turn on fan
+    digitalWrite(A1, HIGH);
+    digitalWrite(A2, LOW);
+    digitalWrite(A3, HIGH);
 
-    //performing checks every minute 
-    if (millis()-lastHumTempCheck >= humTempCheckInterval)
-    {
-      lastHumTempCheck = millis(); //updates last check time
-      int readDHT = DHT.read11(DHTPIN);
-      float temp = DHT.temperature;
-      float humid = DHT.humidity;
+    digitalWrite(6, LOW); //red LED off
+    digitalWrite(7, LOW); //yellow LED on
+    digitalWrite(8, LOW); //green LED off
+    digitalWrite(9, HIGH); //blue LED on
 
-      lcd.setCursor(0, 0);
-      lcd.print("Temp: ");
-      lcd.print(formatFloat(temp, 2)); //shortening value to fit screen
-      lcd.print("C");
-
-      lcd.setCursor(0, 1);
-      lcd.print("Humidity: ");
-      lcd.print(formatFloat(humid, 2)); //shortening value to fit screen
-      lcd.print("%");
+    //running to idle
+    if(temp <= temperatureThreshold){
+      disabled = false;
+      idle = true;
+      running = false;
+      error = false;
+      digitalWrite(A1, LOW);
     }
 
-    unsigned int input;
-    unsigned int input1 = 0;
-    unsigned int input2 = 0;
-    unsigned int input3 = 0;
-    unsigned int input4 = 0;
-    input = adc_read(0); //read water level
-
-    if(input >= 1000){
-      input1 = input / 1000 + '0';
-      U0putchar(input / 1000 + '0');
-      input = input % 1000;
+    //running to error check
+    if(waterLevel <= waterThreshold){
+      disabled = false;
+      idle = false;
+      running = false;
+      error = true;
+      digitalWrite(A1, LOW);
     }
 
-    if(input >= 100){
-      input2 = input / 100 + '0';
-      U0putchar(input / 100 + '0');
-      input = input % 100;
+    //running to disabled check
+    buttonState = digitalRead(buttonPin);
+    if(buttonState == HIGH){
+      disabled = true;
+      idle = false;
+      running = false;
+      error = false;
+      digitalWrite(A1, LOW);
+    }    
+  }
+  else if(error){
+    digitalWrite(6, HIGH); //red LED on
+    digitalWrite(7, LOW); //yellow LED off
+    digitalWrite(8, LOW); //green LED off
+    digitalWrite(9, LOW); //blue LED off
+
+    //error to idle check
+    buttonState4 = digitalRead(buttonPin4);
+    if(buttonState4 == HIGH){
+      disabled = false;
+      idle = true;
+      running = false;
+      error = false;
     }
 
-    if(input >= 10){
-      input3 = input / 10 + '0';
-      U0putchar(input / 10 + '0');
-      input = input % 10;
+    //error to disabled check
+    buttonState = digitalRead(buttonPin);
+    if(buttonState == HIGH){
+      disabled = true;
+      idle = false;
+      running = false;
+      error = false;
     }
+  }
 
-    U0putchar(input + '0');
-    input4 = input + '0';
-    Serial.print ("\n");
+  if(!error){
+    buttonState2 = digitalRead(buttonPin2);
+    buttonState3 = digitalRead(buttonPin3);
 
-    if(input3 < 1 || input3 == 0 && input2 < 6) //ERROR MODE
-    {
-      digitalWrite(8, LOW); // green LED off
-      digitalWrite(9, LOW); //bluee LED off
-      digitalWrite(6, HIGH); // red LED on
-      digitalWrite(3, LOW); //turn off fan
 
-      lcd.setCursor(0,0);
-      lcd.print("ERROR MODE"); //displaying to LCD
-      RTCdisplay();
-      Serial.print("\nERROR MODE");//also displaying to serial
-      displaySerial();
+    if (buttonState2 == HIGH) {
+      // turn LED on:
+      //stepper.setSpeed(1);
+      stepper.step(STEPS);
+      //Serial.print("left");
 
-      resetButton = false;
-      while(resetButton == false)
-      {
-        buttonState4 = digitalRead(buttonPin4);
-        if(buttonState4 == HIGH && input3 > 1 || input3 == 0 && input2 > 6)
-        {
-          resetButton = true;
-        }
-        else{
-          digitalWrite(6, HIGH); // red LED on
-
-          //low water lvl (print to screen)
-          lcd.clear();
-          lcd.setCursor(0,0);
-          lcd.print("ERROR");
-          lcd.setCursor(0,1);
-          lcd.print("WATER LEVEL LOW");
-          RTCdisplay();
-
-          //air temp and humidity
-          lcd.clear();
-          lcd.setCursor(0,0); 
-          lcd.print("Air temp: ");
-          lcd.print(formatFloat(temp, 2)); //shortening value to fit screen
-          lcd.print("C");
-
-          lcd.setCursor(0,1);
-          lcd.print("Humidity: ")
-          lcd.print(formatFloat(humid, 2)); //shortening value to fit screen
-          lcd.print("%");
-
-          //also displaying to serial
-          Serial.print("ERROR WATER LEVEL LOW- ");
-          displaySerial();
-          Serial.print("\nAir temp: " + temp + "C");
-          Serial.print("\nHumidity: " + humid + "%");
-          //ERROR MODE intiated
-        }
-      }
-    }
-
-    if(temp < 23) //RUNNING MODE
-    {
-      digitalWrite(6, LOW); // red led off
-      digitalWrite(8, LOW); //green led off
-      digitalWrite(9, HIGH); //bluee LED off
-      digitalWrite(3, HIGH); //turn on fan
-
+      /*
       //displaying to LCD
       lcd.clear();
       lcd.setCursor(0,0);
-      lcd.print("RUNNING MODE");
+      lcd.print("Stepper Motor:");
       lcd.setCursor(0,1);
-      lcd.print("FAN TURNED ON");
-      RTCdisplay();
-      
-      //also displaying to serial
-      Serial.print("\nRUNNING MODE: FAN TURNED ON- "); 
-      displaySerial();
+      lcd.print("MOVED FORWARD");
+      RTCdisplay(); //clears then displays date and time
+      */
+
+      //displaying to serial
+      //Serial.print("Stepper Motor: MOVED FORWARD- ");
+      //displaySerial();
     }
-
-    else //IDLE MODE
-    {
-      digitalWrite(3, LOW); //turn off fan
-      digitalWrite(9, LOW); //blue LED off
-      digitalWrite(6, LOW); //red LED off
-      digitalWrite(8, HIGH); // green LED on
-
+    else if(buttonState3 == HIGH){
+      // turn LED off:
+      //stepper.setSpeed(1);
+      stepper.step(-STEPS); //this moves motor backwards???
+      //Serial.print("right");
+      /*
       //displaying to LCD
       lcd.clear();
       lcd.setCursor(0,0);
-      lcd.print("IDLE MODE");
+      lcd.print("Stepper Motor:");
       lcd.setCursor(0,1);
-      lcd.print("FAN TURNED OFF");
-      RTCdisplay();
+      lcd.print("MOVED BACKWARD");
+      RTCdisplay(); //clears then displays date and time
 
-      //also displaying to serial
-      Serial.print("\nIDLE MODE: FAN TURNED OFF- "); 
+
+      //displaying to serial
+      Serial.print("Stepper Motor: MOVED BACKWARD- ");
       displaySerial();
-
-      //medium/high water lvl
-      //IS THIS CHECKING WATER LEVEL CONTINUOUSLY?? I HAVE THAT SET UP EARLIER
-      //DOES IT NEED TO BE HERE ALSO??
+      */
+    }
+    else{
+      stepper.step(0);
     }
   }
-  //delay(1000);
 }
 
 ISR(TIMER1_OVF_vect)
@@ -333,7 +289,7 @@ ISR(TIMER1_OVF_vect)
   // if it's not the STOP amount
   if(currentTicks != 65535)
   {
-    disbaled = false;
+    disabled = false;
   }
   else
     disabled = true;
