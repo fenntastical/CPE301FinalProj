@@ -5,7 +5,7 @@
 #include <RTClib.h>
 #include <LiquidCrystal.h>
 
-#define STEPS 60
+#define STEPS 32
 
 dht DHT;
 #define DHTPIN 34
@@ -22,9 +22,11 @@ Stepper stepper(STEPS, 10, 12, 11, 13);
 const int buttonPin2 = 23;
 const int buttonPin3 = 24;
 const int buttonPin4 = 28;
+const int buttonPin5 = 18;
 int buttonState2 = 0; 
 int buttonState3 = 0; 
 int buttonState4 = 0;
+int buttonState5 = 0;
 
 const int buttonPin = 26;
 int buttonState = 0; 
@@ -76,10 +78,12 @@ void setup()
   // setup the ADC
   adc_init();
 
-  pinMode(buttonPin, INPUT); //start and stop
+  pinMode(buttonPin, INPUT); //stop
+  pinMode(buttonPin5, INPUT); //stop
+  attachInterrupt(digitalPinToInterrupt(buttonPin5), startButton, CHANGE);
 
   //stepper motor
-  stepper.setSpeed(1100);
+  stepper.setSpeed(500);
   pinMode(buttonPin2, INPUT);
   pinMode(buttonPin3, INPUT);
   
@@ -220,10 +224,15 @@ void loop()
     //error to disabled check
     buttonState = digitalRead(buttonPin);
     if(buttonState == HIGH){
+      //displaySerial();
+      Serial.print("Change");
+
       disabled = true;
       idle = false;
       running = false;
       error = false;
+
+      //displaySerial();
     }
   }
 
@@ -235,7 +244,7 @@ void loop()
     if (buttonState2 == HIGH) {
       // turn LED on:
       //stepper.setSpeed(1);
-      stepper.step(STEPS);
+      stepper.step(50);
       //Serial.print("left");
 
       /*
@@ -255,7 +264,7 @@ void loop()
     else if(buttonState3 == HIGH){
       // turn LED off:
       //stepper.setSpeed(1);
-      stepper.step(-STEPS); //this moves motor backwards???
+      stepper.step(-50); //this moves motor backwards???
       //Serial.print("right");
       /*
       //displaying to LCD
@@ -278,6 +287,7 @@ void loop()
   }
 }
 
+/*
 ISR(TIMER1_OVF_vect)
 {
   // Stop the Timer
@@ -294,7 +304,7 @@ ISR(TIMER1_OVF_vect)
   else
     disabled = true;
 }
-
+*/
 void adc_init()
 {
   // setup the A register
@@ -360,10 +370,20 @@ void U0putchar(unsigned char U0pdata)
   *myUDR0 = U0pdata;
 }
 
+
+void startButton() {
+  if(disabled){
+    disabled = false;
+    idle = true;
+    running = false;
+    error = false;
+  }
+}
+
 void RTCdisplay()
 {
   lcd.clear();
-  DateTime now= rtc.now();
+  DateTime now = rtc.now();
   //date
   lcd.setCursor(0,0);
   lcd.print(now.day(), DEC);
