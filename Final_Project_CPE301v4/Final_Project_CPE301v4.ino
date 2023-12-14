@@ -17,7 +17,9 @@ RTC_DS3231 rtc; //real time clock
 unsigned long lastHumTempCheck = 0;
 const unsigned long humTempCheckInterval = 60000; // checks every 1 minute
 
-Stepper stepper(STEPS, 10, 12, 11, 13);
+Stepper stepper(STEPS, 43, 47, 45, 49);
+
+DateTime now;
 
 const int buttonPin2 = 23;
 const int buttonPin3 = 24;
@@ -51,7 +53,7 @@ volatile unsigned int  *myTCNT1  = (unsigned  int *) 0x84;
 volatile unsigned char *myTIFR1 =  (unsigned char *) 0x36;
 
 // LCD pins <--> Arduino pins
-const int RS = 5, EN = 4, D4 = 3, D5 = 2, D6 = 1, D7 = 0;
+const int RS = 12, EN = 11, D4 = 5, D5 = 4, D6 = 3, D7 = 2;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);
 
 float temp;
@@ -59,17 +61,16 @@ float humid;
 
 int waterThreshold = 100;
 
-float temperatureThreshold = 30;
+float temperatureThreshold = 22;
 int waterLevel;
 bool resetButton = true;
+bool ventInUse = false;
 
 //state variables
-bool disabled = false; //keeps track of the state of the system
+bool disabled = true; //keeps track of the state of the system
 bool idle = false;
 bool running = false;
-bool error = true;
-unsigned int currentTicks;
-//bool error = false; //keeps track if the system is in ERROR mode
+bool error = false;
 
 void setup() 
 {
@@ -103,15 +104,21 @@ void setup()
   // Timer and LCD
   Wire.begin();
   lcd.begin(16, 2); // set up number of columns and rows
+
+  if (! rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    Serial.flush();
+    while (1);
+  }
+
+  // automatically sets the RTC to the date & time on PC this sketch was compiled
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
  
 }
 void loop() 
 {
-  //int readDHT = DHT.read11(DHTPIN);
-  //temp = DHT.temperature;
-  //Serial.println(temp);
-  //waterLevel = adc_read(0);
-  //Serial.println(waterLevel);
+  now = rtc.now();
+
   if(disabled){
     digitalWrite(6, LOW); //red LED off
     digitalWrite(7, HIGH); //yellow LED on
@@ -125,8 +132,6 @@ void loop()
     //read temperature
     int readDHT = DHT.read11(DHTPIN);
     temp = DHT.temperature;
-    Serial.println(temp);
-    Serial.println(waterLevel);
 
     digitalWrite(6, LOW); //red LED off
     digitalWrite(7, LOW); //yellow LED off
@@ -139,6 +144,9 @@ void loop()
       idle = false;
       running = true;
       error = false;
+      Serial.print("Changed from idle to running at ");
+      displaySerial();
+      displayDHT();
     }
 
     //idle to error check
@@ -147,6 +155,8 @@ void loop()
       idle = false;
       running = false;
       error = true;
+      Serial.print("Changed from idle to error at ");
+      displaySerial();
     }
 
     //idle to disabled check
@@ -156,6 +166,9 @@ void loop()
       idle = false;
       running = false;
       error = false;
+      Serial.print("Changed from idle to disabled at ");
+      displaySerial();
+      lcd.clear();
     }
   }
   else if(running){
@@ -165,8 +178,6 @@ void loop()
     //read temperature
     int readDHT = DHT.read11(DHTPIN);
     temp = DHT.temperature;
-    Serial.println(temp);
-    Serial.println(waterLevel);
 
     //turn on fan
     digitalWrite(A1, HIGH);
@@ -185,6 +196,9 @@ void loop()
       running = false;
       error = false;
       digitalWrite(A1, LOW);
+      Serial.print("Changed from running to idle at ");
+      displaySerial();
+      displayDHT();
     }
 
     //running to error check
@@ -194,6 +208,8 @@ void loop()
       running = false;
       error = true;
       digitalWrite(A1, LOW);
+      Serial.print("Changed from running to error at ");
+      displaySerial();
     }
 
     //running to disabled check
@@ -204,6 +220,9 @@ void loop()
       running = false;
       error = false;
       digitalWrite(A1, LOW);
+      Serial.print("Changed from running to disabled at ");
+      displaySerial();
+      lcd.clear();
     }    
   }
   else if(error){
@@ -212,6 +231,13 @@ void loop()
     digitalWrite(8, LOW); //green LED off
     digitalWrite(9, LOW); //blue LED off
 
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Water level");
+    lcd.setCursor(0, 1);
+    lcd.print("is too low");
+
+
     //error to idle check
     buttonState4 = digitalRead(buttonPin4);
     if(buttonState4 == HIGH){
@@ -219,20 +245,21 @@ void loop()
       idle = true;
       running = false;
       error = false;
+      Serial.print("Changed from error to idle at ");
+      displaySerial();
+      displayDHT();
     }
 
     //error to disabled check
     buttonState = digitalRead(buttonPin);
     if(buttonState == HIGH){
-      //displaySerial();
-      Serial.print("Change");
-
       disabled = true;
       idle = false;
       running = false;
       error = false;
-
-      //displaySerial();
+      Serial.print("Changed from error to disabled at ");
+      displaySerial();
+      lcd.clear();
     }
   }
 
@@ -240,71 +267,37 @@ void loop()
     buttonState2 = digitalRead(buttonPin2);
     buttonState3 = digitalRead(buttonPin3);
 
-
-    if (buttonState2 == HIGH) {
-      // turn LED on:
-      //stepper.setSpeed(1);
+    if(buttonState2 == HIGH) {
       stepper.step(50);
-      //Serial.print("left");
-
-      /*
-      //displaying to LCD
-      lcd.clear();
-      lcd.setCursor(0,0);
-      lcd.print("Stepper Motor:");
-      lcd.setCursor(0,1);
-      lcd.print("MOVED FORWARD");
-      RTCdisplay(); //clears then displays date and time
-      */
-
-      //displaying to serial
-      //Serial.print("Stepper Motor: MOVED FORWARD- ");
-      //displaySerial();
+      if(!ventInUse){
+        Serial.print("Vent Started Rotating Counterclockwise at ");
+        displaySerial();
+        ventInUse = true;
+      }
     }
     else if(buttonState3 == HIGH){
-      // turn LED off:
-      //stepper.setSpeed(1);
-      stepper.step(-50); //this moves motor backwards???
-      //Serial.print("right");
-      /*
-      //displaying to LCD
-      lcd.clear();
-      lcd.setCursor(0,0);
-      lcd.print("Stepper Motor:");
-      lcd.setCursor(0,1);
-      lcd.print("MOVED BACKWARD");
-      RTCdisplay(); //clears then displays date and time
-
-
-      //displaying to serial
-      Serial.print("Stepper Motor: MOVED BACKWARD- ");
-      displaySerial();
-      */
+      if(!ventInUse){
+        Serial.print("Vent Started Rotating Clockwise at ");
+        displaySerial();
+        ventInUse = true;
+      }
     }
     else{
       stepper.step(0);
+      ventInUse = false;
     }
   }
+  if(!disabled){
+    if(now.second() == 0){
+      displayDHT();
+      if(error)
+        delay(3000);
+    }
+  }
+
 }
 
-/*
-ISR(TIMER1_OVF_vect)
-{
-  // Stop the Timer
-  *myTCCR1B &=0xF8;
-  // Load the Count
-  *myTCNT1 =  (unsigned int) (65535 -  (unsigned long) (currentTicks));
-  // Start the Timer
-  *myTCCR1B |=   0x01;
-  // if it's not the STOP amount
-  if(currentTicks != 65535)
-  {
-    disabled = false;
-  }
-  else
-    disabled = true;
-}
-*/
+
 void adc_init()
 {
   // setup the A register
@@ -377,36 +370,28 @@ void startButton() {
     idle = true;
     running = false;
     error = false;
+    Serial.print("Changed from disabled to idle at ");
+    displaySerial();
   }
 }
 
-void RTCdisplay()
+void displayDHT()
 {
   lcd.clear();
-  DateTime now = rtc.now();
-  //date
   lcd.setCursor(0,0);
-  lcd.print(now.day(), DEC);
-  lcd.print('/');
-  lcd.print(now.month(), DEC);
-  lcd.print('/');
-  lcd.print(now.year(), DEC);
-  lcd.print(' ');
-
-  //time
+  int readDHT = DHT.read11(DHTPIN);
+  temp = DHT.temperature;
+  humid = DHT.humidity;
+  String tempDisplay = "Temp: " + (String)temp;
+  String humidDisplay = "Humidity: " + (String)humid;
+  lcd.print(tempDisplay);
   lcd.setCursor(0,1);
-  lcd.print(now.hour(), DEC);
-  lcd.print(':');
-  lcd.print(now.minute(), DEC);
-  lcd.print(':');
-  lcd.print(now.second(), DEC);
-
-  //delay(1000);
+  lcd.print(humidDisplay);
 }
 
 void displaySerial()
 {
-  DateTime now = rtc.now();
+  //DateTime now = rtc.now();
   //date
   Serial.print(now.day(), DEC);
   Serial.print('/');
@@ -418,12 +403,14 @@ void displaySerial()
   //time
   Serial.print(now.hour(), DEC);
   Serial.print(':');
+  if(now.minute() < 10)
+    Serial.print("0");
   Serial.print(now.minute(), DEC);
   Serial.print(':');
+  if(now.second() < 10)
+    Serial.print("0");
   Serial.print(now.second(), DEC);
   Serial.println();
-
-  //delay(1000);
 }
 
 //converts value to string to shorten decimal place to ensure the value fits on lcd screen
