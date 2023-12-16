@@ -13,25 +13,38 @@ dht DHT;
 #define RDA 0x80
 #define TBE 0x20  
 
-RTC_DS3231 rtc; //real time clock
-unsigned long lastHumTempCheck = 0;
-const unsigned long humTempCheckInterval = 60000; // checks every 1 minute
+RTC_DS3231 rtc;
 
 Stepper stepper(STEPS, 43, 47, 45, 49);
 
 DateTime now;
 
+const int buttonPin = 26;
 const int buttonPin2 = 23;
 const int buttonPin3 = 24;
 const int buttonPin4 = 28;
 const int buttonPin5 = 18;
+int buttonState = 0; 
 int buttonState2 = 0; 
 int buttonState3 = 0; 
 int buttonState4 = 0;
 int buttonState5 = 0;
 
-const int buttonPin = 26;
-int buttonState = 0; 
+volatile unsigned char* port_f = (unsigned char*) 0x31; 
+volatile unsigned char* ddr_f  = (unsigned char*) 0x30; 
+volatile unsigned char* pin_f  = (unsigned char*) 0x2F;
+
+volatile unsigned char* port_h = (unsigned char*) 0x102; 
+volatile unsigned char* ddr_h  = (unsigned char*) 0x101; 
+volatile unsigned char* pin_h  = (unsigned char*) 0x100;
+
+volatile unsigned char* port_d = (unsigned char*) 0x2B; 
+volatile unsigned char* ddr_d  = (unsigned char*) 0x2A; 
+volatile unsigned char* pin_d  = (unsigned char*) 0x29;
+
+volatile unsigned char* port_a = (unsigned char*) 0x22; 
+volatile unsigned char* ddr_a  = (unsigned char*) 0x21; 
+volatile unsigned char* pin_a  = (unsigned char*) 0x20;
 
 volatile unsigned char *myUCSR0A = (unsigned char *)0x00C0;
 volatile unsigned char *myUCSR0B = (unsigned char *)0x00C1;
@@ -79,37 +92,43 @@ void setup()
   // setup the ADC
   adc_init();
 
-  pinMode(buttonPin, INPUT); //stop
-  pinMode(buttonPin5, INPUT); //stop
+  //pinMode(buttonPin, INPUT); //stop
+  *ddr_a &= 0xEF;
+  //pinMode(buttonPin5, INPUT); //start
+  *ddr_d &= 0xF7;
   attachInterrupt(digitalPinToInterrupt(buttonPin5), startButton, CHANGE);
 
   //stepper motor
   stepper.setSpeed(500);
-  pinMode(buttonPin2, INPUT);
-  pinMode(buttonPin3, INPUT);
+  //pinMode(buttonPin2, INPUT);
+  *ddr_a &= 0xFD;
+  //pinMode(buttonPin3, INPUT);
+  *ddr_a &= 0xFB;
   
   
-  pinMode(A3, OUTPUT); //Motor Driver - IN2
-  pinMode(A2, OUTPUT); //Motor Driver - IN3
-  pinMode(A1, OUTPUT); //Motor Driver - ENA
+  //pinMode(A3, OUTPUT); //Motor Driver - IN2
+  *ddr_f |= 0x08;
+  //pinMode(A2, OUTPUT); //Motor Driver - IN3
+  *ddr_f |= 0x04;
+  //pinMode(A1, OUTPUT); //Motor Driver - ENA
+  *ddr_f |= 0x02;
 
   //setting up LED's for water ouput reading
-  pinMode(6, OUTPUT); //red LED
-  pinMode(7, OUTPUT); //yellow LED
-  pinMode(8, OUTPUT); //green LED
-  pinMode(9, OUTPUT); //blue LED
+  //pinMode(6, OUTPUT); //red LED
+  *ddr_h |= 0x08;
+  //pinMode(7, OUTPUT); //yellow LED
+  *ddr_h |= 0x10;
+  //pinMode(8, OUTPUT); //green LED
+  *ddr_h |= 0x20;
+  //pinMode(9, OUTPUT); //blue LED
+  *ddr_h |= 0x40;
 
-  pinMode(buttonPin4, INPUT); //reset
+  //pinMode(buttonPin4, INPUT); //reset
+  *ddr_a &= 0xBF;
   
   // Timer and LCD
   Wire.begin();
   lcd.begin(16, 2); // set up number of columns and rows
-
-  if (! rtc.begin()) {
-    Serial.println("Couldn't find RTC");
-    Serial.flush();
-    while (1);
-  }
 
   // automatically sets the RTC to the date & time on PC this sketch was compiled
   rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -120,10 +139,14 @@ void loop()
   now = rtc.now();
 
   if(disabled){
-    digitalWrite(6, LOW); //red LED off
-    digitalWrite(7, HIGH); //yellow LED on
-    digitalWrite(8, LOW); //green LED off
-    digitalWrite(9, LOW); //blue LED on
+    //digitalWrite(6, LOW); //red LED off
+    //digitalWrite(7, HIGH); //yellow LED on
+    //digitalWrite(8, LOW); //green LED off
+    //digitalWrite(9, LOW); //blue LED on
+    setRed(false);
+    setYellow(true);
+    setGreen(false);
+    setBlue(false);
   }
   else if(idle){
     //read water level
@@ -133,10 +156,14 @@ void loop()
     int readDHT = DHT.read11(DHTPIN);
     temp = DHT.temperature;
 
-    digitalWrite(6, LOW); //red LED off
-    digitalWrite(7, LOW); //yellow LED off
-    digitalWrite(8, HIGH); //green LED on
-    digitalWrite(9, LOW); //blue LED on
+    //digitalWrite(6, LOW); //red LED off
+    //digitalWrite(7, LOW); //yellow LED off
+    //digitalWrite(8, HIGH); //green LED on
+    //digitalWrite(9, LOW); //blue LED off
+    setRed(false);
+    setYellow(false);
+    setGreen(true);
+    setBlue(false);
 
     //idle to running check
     if(temp > temperatureThreshold){
@@ -144,7 +171,9 @@ void loop()
       idle = false;
       running = true;
       error = false;
-      Serial.print("Changed from idle to running at ");
+      String change = "Changed from idle to running at ";
+      for(int i = 0; i < change.length(); i++)
+        U0putchar(change[i]);
       displaySerial();
       displayDHT();
     }
@@ -155,18 +184,21 @@ void loop()
       idle = false;
       running = false;
       error = true;
-      Serial.print("Changed from idle to error at ");
+      String change = "Changed from idle to error at ";
+      for(int i = 0; i < change.length(); i++)
+        U0putchar(change[i]);
       displaySerial();
     }
 
     //idle to disabled check
-    buttonState = digitalRead(buttonPin);
-    if(buttonState == HIGH){
+    if(*pin_a & 0x10){
       disabled = true;
       idle = false;
       running = false;
       error = false;
-      Serial.print("Changed from idle to disabled at ");
+      String change = "Changed from idle to disabled at ";
+      for(int i = 0; i < change.length(); i++)
+        U0putchar(change[i]);
       displaySerial();
       lcd.clear();
     }
@@ -180,14 +212,21 @@ void loop()
     temp = DHT.temperature;
 
     //turn on fan
-    digitalWrite(A1, HIGH);
-    digitalWrite(A2, LOW);
-    digitalWrite(A3, HIGH);
+    //digitalWrite(A1, HIGH);
+    *port_f |= 0x02;
+    //digitalWrite(A2, LOW);
+    *port_f &= 0xFB;
+    //digitalWrite(A3, HIGH);
+    *port_f |= 0x08;
 
-    digitalWrite(6, LOW); //red LED off
-    digitalWrite(7, LOW); //yellow LED on
-    digitalWrite(8, LOW); //green LED off
-    digitalWrite(9, HIGH); //blue LED on
+    //digitalWrite(6, LOW); //red LED off
+    //digitalWrite(7, LOW); //yellow LED off
+    //digitalWrite(8, LOW); //green LED off
+    //digitalWrite(9, HIGH); //blue LED on
+    setRed(false);
+    setYellow(false);
+    setGreen(false);
+    setBlue(true);
 
     //running to idle
     if(temp <= temperatureThreshold){
@@ -195,8 +234,11 @@ void loop()
       idle = true;
       running = false;
       error = false;
-      digitalWrite(A1, LOW);
-      Serial.print("Changed from running to idle at ");
+      //digitalWrite(A1, LOW);
+      *port_f &= 0xFD;
+      String change = "Changed from running to idle at ";
+      for(int i = 0; i < change.length(); i++)
+        U0putchar(change[i]);
       displaySerial();
       displayDHT();
     }
@@ -207,29 +249,38 @@ void loop()
       idle = false;
       running = false;
       error = true;
-      digitalWrite(A1, LOW);
-      Serial.print("Changed from running to error at ");
+      //digitalWrite(A1, LOW);
+      *port_f &= 0xFD;
+      String change = "Changed from running to error at ";
+      for(int i = 0; i < change.length(); i++)
+        U0putchar(change[i]);
       displaySerial();
     }
 
     //running to disabled check
-    buttonState = digitalRead(buttonPin);
-    if(buttonState == HIGH){
+    if(*pin_a & 0x10){
       disabled = true;
       idle = false;
       running = false;
       error = false;
-      digitalWrite(A1, LOW);
-      Serial.print("Changed from running to disabled at ");
+      //digitalWrite(A1, LOW);
+      *port_f &= 0xFD;
+      String change = "Changed from running to disabled at ";
+      for(int i = 0; i < change.length(); i++)
+        U0putchar(change[i]);
       displaySerial();
       lcd.clear();
     }    
   }
   else if(error){
-    digitalWrite(6, HIGH); //red LED on
-    digitalWrite(7, LOW); //yellow LED off
-    digitalWrite(8, LOW); //green LED off
-    digitalWrite(9, LOW); //blue LED off
+    //digitalWrite(6, HIGH); //red LED on
+    //digitalWrite(7, LOW); //yellow LED off
+    //digitalWrite(8, LOW); //green LED off
+    //digitalWrite(9, LOW); //blue LED off
+    setRed(true);
+    setYellow(false);
+    setGreen(false);
+    setBlue(false);
 
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -239,45 +290,48 @@ void loop()
 
 
     //error to idle check
-    buttonState4 = digitalRead(buttonPin4);
-    if(buttonState4 == HIGH){
+    if(*pin_a & 0x40){
       disabled = false;
       idle = true;
       running = false;
       error = false;
-      Serial.print("Changed from error to idle at ");
+      String change = "Changed from error to idle at ";
+      for(int i = 0; i < change.length(); i++)
+        U0putchar(change[i]);
       displaySerial();
       displayDHT();
     }
 
     //error to disabled check
-    buttonState = digitalRead(buttonPin);
-    if(buttonState == HIGH){
+    if(*pin_a & 0x10){
       disabled = true;
       idle = false;
       running = false;
       error = false;
-      Serial.print("Changed from error to disabled at ");
+      String change = "Changed from error to disabled at ";
+      for(int i = 0; i < change.length(); i++)
+        U0putchar(change[i]);
       displaySerial();
       lcd.clear();
     }
   }
 
   if(!error){
-    buttonState2 = digitalRead(buttonPin2);
-    buttonState3 = digitalRead(buttonPin3);
-
-    if(buttonState2 == HIGH) {
+    if(*pin_a & 0x02) {
       stepper.step(50);
       if(!ventInUse){
-        Serial.print("Vent Started Rotating Counterclockwise at ");
+        String change = "Vent Started Rotating Counterclockwise at ";
+        for(int i = 0; i < change.length(); i++)
+          U0putchar(change[i]);
         displaySerial();
         ventInUse = true;
       }
     }
-    else if(buttonState3 == HIGH){
+    else if(*pin_a & 0x04){
       if(!ventInUse){
-        Serial.print("Vent Started Rotating Clockwise at ");
+        String change = "Vent Started Rotating Clockwise at ";
+        for(int i = 0; i < change.length(); i++)
+          U0putchar(change[i]);
         displaySerial();
         ventInUse = true;
       }
@@ -290,13 +344,45 @@ void loop()
   if(!disabled){
     if(now.second() == 0){
       displayDHT();
-      if(error)
-        delay(3000);
     }
   }
-
 }
 
+void setBlue(bool on){
+  if(on){
+    *port_h |= 0x40;
+  }
+  else{
+    *port_h &= 0xBF;
+  }
+}
+
+void setYellow(bool on){
+  if(on){
+    *port_h |= 0x10;
+  }
+  else{
+    *port_h &= 0xEF;
+  }
+}
+
+void setGreen(bool on){
+  if(on){
+    *port_h |= 0x20;
+  }
+  else{
+    *port_h &= 0xDF;
+  }
+}
+
+void setRed(bool on){
+  if(on){
+    *port_h |= 0x08;
+  }
+  else{
+    *port_h &= 0xF7;
+  }
+}
 
 void adc_init()
 {
@@ -370,8 +456,11 @@ void startButton() {
     idle = true;
     running = false;
     error = false;
-    Serial.print("Changed from disabled to idle at ");
+    String change = "Changed from disabled to idle at ";
+    for(int i = 0; i < change.length(); i++)
+      U0putchar(change[i]);
     displaySerial();
+    displayDHT();
   }
 }
 
@@ -393,24 +482,28 @@ void displaySerial()
 {
   //DateTime now = rtc.now();
   //date
-  Serial.print(now.day(), DEC);
-  Serial.print('/');
-  Serial.print(now.month(), DEC);
-  Serial.print('/');
-  Serial.print(now.year(), DEC);
-  Serial.print(" ");
+  String output = "";
+
+  output += (String) now.day();
+  output += "/";
+  output += (String) now.month();
+  output += "/";
+  output += (String) now.year();
+  output += " ";
 
   //time
-  Serial.print(now.hour(), DEC);
-  Serial.print(':');
+  output += (String) now.hour();
+  output += ":";
   if(now.minute() < 10)
-    Serial.print("0");
-  Serial.print(now.minute(), DEC);
-  Serial.print(':');
+    output += "0";
+  output += now.minute();
+  output += ":";
   if(now.second() < 10)
-    Serial.print("0");
-  Serial.print(now.second(), DEC);
-  Serial.println();
+    output += "0";
+  output += (String) now.second();
+  output += "\n";
+  for(int i = 0; i < output.length(); i++)
+    U0putchar(output[i]);
 }
 
 //converts value to string to shorten decimal place to ensure the value fits on lcd screen
